@@ -2,13 +2,15 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Play, Square, Save, Upload, Filter } from "lucide-react"
 import type { PacketData } from "@/lib/types"
+import { parsePcapFile, saveToPcap } from "@/lib/pcap-utils"
+import { useToast } from "@/hooks/use-toast"
 
 // Update the interface to include packets
 interface PacketCaptureProps {
@@ -17,6 +19,8 @@ interface PacketCaptureProps {
   onNewPackets: (packets: PacketData[]) => void
   onClearPackets: () => void
   packets: PacketData[] // Add this line
+  connectToServer?: (interface_: string, filter: string) => void
+  stopCapture?: () => void
 }
 
 // Update the function signature to include packets
@@ -26,176 +30,209 @@ export function PacketCapture({
   onNewPackets,
   onClearPackets,
   packets,
+  connectToServer,
+  stopCapture,
 }: PacketCaptureProps) {
   const [interface_, setInterface] = useState("")
   const [filter, setFilter] = useState("")
   const [interfaces, setInterfaces] = useState([
+    { id: "\\Device\\NPF_Loopback", name: "Loopback" },
     { id: "eth0", name: "Ethernet" },
     { id: "wlan0", name: "Wi-Fi" },
-    { id: "lo", name: "Loopback" },
   ])
+  const [isLoading, setIsLoading] = useState(false)
+  const wsRef = useRef<WebSocket | null>(null)
+  const { toast } = useToast()
 
   const handleStartCapture = async () => {
-    if (!interface_) return
+    console.log("Starting capture on interface:", interface_ || "default")
 
-    setIsCapturing(true)
-    console.log("Starting capture on interface:", interface_)
-
-    // In a real implementation, this would connect to a backend service
-    // that uses scapy or a similar library to capture packets
-    // For demo purposes, we'll simulate packet capture
-    simulatePacketCapture()
+    // Use the connectToServer function from props if available
+    if (connectToServer) {
+      // Pass the selected interface and filter to the server
+      connectToServer(interface_ || "\\Device\\NPF_Loopback", filter)
+    } else {
+      // Fallback to direct WebSocket connection
+      connectToServerWithWebSocket(interface_ || "\\Device\\NPF_Loopback", filter)
+    }
   }
 
   const handleStopCapture = () => {
-    setIsCapturing(false)
-    console.log("Capture stopped") // Add logging
-    // In a real implementation, this would stop the packet capture
+    console.log("Stopping capture")
+
+    // Используем функцию stopCapture из props, если она доступна
+    if (stopCapture) {
+      stopCapture()
+    } else {
+      // Если функция не доступна, просто меняем состояние
+      setIsCapturing(false)
+    }
   }
 
   const handleLoadPcap = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
-    // In a real implementation, this would parse the PCAP file
-    // For demo purposes, we'll simulate loading packets
-    const packets = await simulateLoadPcap(file)
-    onNewPackets(packets)
-  }
-
-  const simulatePacketCapture = () => {
-    // This simulates receiving packets at regular intervals
-    const interval = setInterval(() => {
-      if (!isCapturing) {
-        clearInterval(interval)
-        return
+    setIsLoading(true)
+    try {
+      // Используем реальный парсер PCAP файлов
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        // Если есть WebSocket соединение, отправляем файл на сервер
+        const reader = new FileReader()
+        reader.onload = async (event) => {
+          if (event.target?.result) {
+            const base64Data = (event.target.result as string).split(",")[1]
+            wsRef.current?.send(
+              JSON.stringify({
+                command: "load_pcap",
+                pcap_data: base64Data,
+              }),
+            )
+            toast({
+              title: "PCAP файл загружен",
+              description: `Файл ${file.name} отправлен на сервер для обработки`,
+            })
+          }
+        }
+        reader.readAsDataURL(file)
+      } else {
+        // Если нет WebSocket соединения, парсим файл на клиенте
+        const packets = await parsePcapFile(file)
+        onNewPackets(packets)
+        toast({
+          title: "PCAP файл загружен",
+          description: `Загружено ${packets.length} пакетов из файла ${file.name}`,
+        })
       }
-
-      const newPackets = generateRandomPackets(5)
-      console.log("Generated new packets:", newPackets.length) // Add logging
-      onNewPackets(newPackets)
-    }, 1000)
-
-    // Store the interval ID to clear it later
-    return interval
-  }
-
-  const simulateLoadPcap = async (file: File): Promise<PacketData[]> => {
-    // In a real implementation, this would parse the PCAP file
-    // For demo purposes, we'll generate random packets
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve(generateRandomPackets(100))
-      }, 500)
-    })
-  }
-
-  // Modify the generateRandomPackets function to create more realistic packets
-  const generateRandomPackets = (count: number): PacketData[] => {
-    const protocols = [1, 6, 17] // ICMP, TCP, UDP
-    const packets: PacketData[] = []
-    const commonPorts = [80, 443, 22, 53, 8080, 3389]
-
-    for (let i = 0; i < count; i++) {
-      const protocol = protocols[Math.floor(Math.random() * protocols.length)]
-      const isSynFlood = protocol === 6 && Math.random() < 0.1 // 10% chance of SYN flood for TCP
-      const destPort = commonPorts[Math.floor(Math.random() * commonPorts.length)]
-
-      packets.push({
-        id: Date.now() + i,
-        timestamp: new Date().toISOString(),
-        sourceIp: generateRandomIp(),
-        destIp: generateRandomIp(),
-        sourcePort: Math.floor(Math.random() * 65535),
-        destPort: destPort,
-        protocol,
-        size: Math.floor(Math.random() * 1500) + 40, // More realistic packet sizes
-        flags: protocol === 6 ? (isSynFlood ? "S" : "PA") : "",
-        isMalicious: isSynFlood,
-        data: Array(Math.floor(Math.random() * 100) + 20)
-          .fill(0)
-          .map(() =>
-            Math.floor(Math.random() * 256)
-              .toString(16)
-              .padStart(2, "0"),
-          )
-          .join(" "),
+    } catch (error) {
+      console.error("Error loading PCAP file:", error)
+      toast({
+        title: "Ошибка загрузки PCAP",
+        description: `Не удалось загрузить файл: ${error}`,
+        variant: "destructive",
       })
+    } finally {
+      setIsLoading(false)
+      // Сбрасываем значение input, чтобы можно было загрузить тот же файл повторно
+      e.target.value = ""
     }
-
-    return packets
   }
 
-  // Add a function to simulate a SYN flood attack
-  const simulateSynFlood = (targetIp: string, targetPort: number, count: number): PacketData[] => {
-    console.log(`Simulating SYN flood attack to ${targetIp}:${targetPort}, ${count} packets`)
-    const packets: PacketData[] = []
-
-    for (let i = 0; i < count; i++) {
-      const sourceIp = generateRandomIp() // Random source IP for each packet (IP spoofing)
-
-      packets.push({
-        id: Date.now() + i,
-        timestamp: new Date().toISOString(),
-        sourceIp: sourceIp,
-        destIp: targetIp,
-        sourcePort: Math.floor(Math.random() * 65535), // Random source port
-        destPort: targetPort,
-        protocol: 6, // TCP
-        size: 40 + Math.floor(Math.random() * 20), // TCP SYN packets are small
-        flags: "S", // SYN flag
-        isMalicious: true, // Mark as malicious
-        data: `45 00 00 28 ${Math.floor(Math.random() * 256)
-          .toString(16)
-          .padStart(2, "0")} ${Math.floor(Math.random() * 256)
-          .toString(16)
-          .padStart(2, "0")} 40 00 40 06 00 00 ${sourceIp
-          .split(".")
-          .map((octet) => Number.parseInt(octet).toString(16).padStart(2, "0"))
-          .join(" ")} ${targetIp
-          .split(".")
-          .map((octet) => Number.parseInt(octet).toString(16).padStart(2, "0"))
-          .join(" ")}`,
-      })
-    }
-
-    return packets
-  }
-
-  const generateRandomIp = () => {
-    return `${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)}`
-  }
-
-  // Improve the handleSavePackets function to better handle errors and provide feedback
-  const handleSavePackets = () => {
+  const handleSavePackets = async () => {
     console.log("Save button clicked, packets:", packets.length)
 
     if (packets.length === 0) {
-      console.log("No packets to save")
-      alert("No packets to save")
+      toast({
+        title: "Нет пакетов для сохранения",
+        description: "Захватите сетевой трафик перед сохранением",
+        variant: "destructive",
+      })
       return
     }
 
     try {
-      // Convert packets to JSON
-      const packetData = JSON.stringify(packets, null, 2)
-
-      // Create a blob and download it
-      const blob = new Blob([packetData], { type: "application/json" })
+      // Используем реальное сохранение PCAP
+      const blob = await saveToPcap(packets)
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `network_capture_${new Date().toISOString().replace(/[:.]/g, "-")}.json`
+      a.download = `network_capture_${new Date().toISOString().replace(/[:.]/g, "-")}.pcap`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
 
-      console.log(`Saved ${packets.length} packets`)
-      alert(`Successfully saved ${packets.length} packets`)
+      toast({
+        title: "PCAP файл сохранен",
+        description: `Сохранено ${packets.length} пакетов`,
+      })
     } catch (error) {
-      console.error("Error saving packets:", error)
-      alert(`Error saving packets: ${error}`)
+      console.error("Error saving packets to PCAP:", error)
+      toast({
+        title: "Ошибка сохранения PCAP",
+        description: `Не удалось сохранить файл: ${error}`,
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleNewPackets = (newPackets: PacketData[]) => {
+    onNewPackets(newPackets)
+  }
+
+  const connectToServerWithWebSocket = (interface_: string, filter: string) => {
+    // Close previous connection if it exists
+    if (wsRef.current) {
+      wsRef.current.close()
+    }
+
+    try {
+      console.log("Connecting to WebSocket server...")
+      const ws = new WebSocket(`ws://localhost:8000?iface=${interface_}&filter=${filter}`)
+      wsRef.current = ws
+
+      ws.onopen = () => {
+        console.log("Connected to WebSocket server")
+        setIsCapturing(true)
+        toast({
+          title: "Подключено к серверу",
+          description: "WebSocket соединение установлено",
+        })
+      }
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+
+          // Handle command responses
+          if (data.type === "command_response") {
+            console.log("Command response received:", data)
+            if (data.command === "load_pcap" && data.status === "success") {
+              toast({
+                title: "PCAP файл загружен",
+                description: `Загружено ${data.packet_count} пакетов`,
+              })
+            } else if (data.command === "save_pcap" && data.status === "success") {
+              toast({
+                title: "PCAP файл сохранен",
+                description: `Файл сохранен как ${data.filename}`,
+              })
+            }
+          } else {
+            // Process packet data
+            handleNewPackets([data])
+          }
+        } catch (error) {
+          console.error("Error processing message:", error)
+        }
+      }
+
+      ws.onclose = () => {
+        console.log("Disconnected from WebSocket server")
+        setIsCapturing(false)
+        toast({
+          title: "Соединение закрыто",
+          description: "WebSocket соединение с сервером закрыто",
+        })
+      }
+
+      ws.onerror = (error) => {
+        console.error("WebSocket error:", error)
+        setIsCapturing(false)
+        toast({
+          title: "Ошибка соединения",
+          description: "Не удалось подключиться к серверу",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Error connecting to Python server:", error)
+      setIsCapturing(false)
+      toast({
+        title: "Ошибка соединения",
+        description: `Не удалось подключиться к серверу: ${error}`,
+        variant: "destructive",
+      })
     }
   }
 
@@ -246,7 +283,7 @@ export function PacketCapture({
           </Button>
 
           <div className="relative">
-            <Button variant="outline" asChild>
+            <Button variant="outline" asChild disabled={isLoading}>
               <label>
                 <Upload className="h-4 w-4 mr-2" />
                 Load PCAP
@@ -258,28 +295,6 @@ export function PacketCapture({
           <Button variant="outline" onClick={handleSavePackets} disabled={packets.length === 0}>
             <Save className="h-4 w-4 mr-2" />
             Save
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => {
-              const targetIp = "192.168.1.1" // Default target
-              const targetPort = 80 // Default port
-              const attackPackets = simulateSynFlood(targetIp, targetPort, 50)
-              onNewPackets(attackPackets)
-            }}
-          >
-            <Play className="h-4 w-4 mr-2" />
-            SYN Flood
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => {
-              const testPackets = generateRandomPackets(10)
-              onNewPackets(testPackets)
-              console.log("Generated 10 test packets")
-            }}
-          >
-            Test Packets
           </Button>
         </div>
       </div>

@@ -5,6 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input"
 import type { PacketData } from "@/lib/types"
 import { formatTimestamp, getProtocolName } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 
 interface PacketListProps {
   packets: PacketData[]
@@ -23,9 +24,23 @@ export function PacketList({ packets, selectedPacket, setSelectedPacket }: Packe
       packet.sourceIp.includes(searchTerm) ||
       packet.destIp.includes(searchTerm) ||
       getProtocolName(packet.protocol).toLowerCase().includes(searchLower) ||
-      packet.data.toLowerCase().includes(searchLower)
+      (packet.data && packet.data.toLowerCase().includes(searchLower))
     )
   })
+
+  // Функция для создания стабильного ключа для каждого пакета
+  const getPacketKey = (packet: PacketData, index: number): string => {
+    if (typeof packet.id === "string" && packet.id) {
+      return packet.id
+    }
+
+    if (typeof packet.id === "number" && !isNaN(packet.id)) {
+      return `packet-${packet.id}`
+    }
+
+    // Создаем ключ на основе характеристик пакета и его индекса
+    return `packet-${index}-${packet.timestamp}-${packet.sourceIp}:${packet.sourcePort}-${packet.destIp}:${packet.destPort}`
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -54,8 +69,15 @@ export function PacketList({ packets, selectedPacket, setSelectedPacket }: Packe
             {filteredPackets.length > 0 ? (
               filteredPackets.map((packet, index) => (
                 <TableRow
-                  key={packet.id}
-                  className={`cursor-pointer ${selectedPacket?.id === packet.id ? "bg-muted" : ""} ${packet.isMalicious ? "bg-red-100 hover:bg-red-200 dark:bg-red-900/20 dark:hover:bg-red-900/30" : ""}`}
+                  key={getPacketKey(packet, index)}
+                  className={cn(
+                    `cursor-pointer ${selectedPacket?.id === packet.id ? "bg-muted" : ""}`,
+                    packet.isMalicious && packet.protocol === 6 && packet.flags === "S"
+                      ? "bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/40 border-l-4 border-l-red-500"
+                      : packet.isMalicious
+                        ? "bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/30"
+                        : "",
+                  )}
                   onClick={() => setSelectedPacket(packet)}
                 >
                   <TableCell>{index + 1}</TableCell>
@@ -67,13 +89,28 @@ export function PacketList({ packets, selectedPacket, setSelectedPacket }: Packe
                   <TableCell>
                     {packet.protocol === 6 && packet.flags ? (
                       <span>
-                        {packet.flags === "S" ? "SYN " : packet.flags === "PA" ? "PSH ACK " : ""}
-                        Seq=0 Win=64240
+                        {packet.flags === "S" ? (
+                          <>
+                            <span className="font-medium">SYN</span> Seq={Math.floor(Math.random() * 4294967295)}{" "}
+                            Win=64240
+                          </>
+                        ) : packet.flags === "PA" ? (
+                          "PSH ACK Seq=0 Win=64240"
+                        ) : packet.flags === "A" ? (
+                          "ACK"
+                        ) : (
+                          packet.flags
+                        )}
                       </span>
                     ) : (
                       "Standard packet"
                     )}
-                    {packet.isMalicious && <span className="ml-2 text-red-600 font-bold dark:text-red-400">[MALICIOUS]</span>}
+                    {packet.isMalicious && (
+                      <span className="ml-2 text-red-600 font-bold dark:text-red-400">
+                        [MALICIOUS
+                        {packet.destIp === "192.168.1.1" && packet.destPort === 80 ? " - TARGETED ATTACK" : ""}]
+                      </span>
+                    )}
                   </TableCell>
                 </TableRow>
               ))

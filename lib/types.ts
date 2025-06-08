@@ -1,5 +1,5 @@
 export interface PacketData {
-  id: number
+  id: string | number
   timestamp: string
   sourceIp: string
   destIp: string

@@ -59,42 +59,42 @@ export function AnalysisPanel({ stats, packets }: AnalysisPanelProps) {
 
   return (
     <div className="p-4 space-y-6">
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle>Threat Analysis</CardTitle>
-          <CardDescription>
-            Based on {stats.total} packets, {stats.malicious} identified as malicious
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            <div className="flex justify-between">
-              <span>Threat Level</span>
-              <span
-                className={`font-medium ${
-                  threatLevel < 30 ? "text-green-500" : threatLevel < 70 ? "text-yellow-500" : "text-red-500"
-                }`}
-              >
-                {threatLevel < 30 ? "Low" : threatLevel < 70 ? "Medium" : "High"}
-              </span>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle>Аналіз загроз</CardTitle>
+            <CardDescription>
+              Виявлено {stats.malicious} потенційно небезпечних із {stats.total} пакетів
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <span>Рівень загрози</span>
+                <span
+                  className={`font-medium ${
+                    threatLevel < 30 ? "text-green-500" : threatLevel < 70 ? "text-yellow-500" : "text-red-500"
+                  }`}
+                >
+                  {threatLevel < 30 ? "Низький" : threatLevel < 70 ? "Середній" : "Високий"}
+                </span>
+              </div>
+              <Progress
+                value={threatLevel}
+                className={`h-2 ${threatLevel < 30 ? "bg-green-100" : threatLevel < 70 ? "bg-yellow-100" : "bg-red-100"}`}
+              />
             </div>
-            <Progress
-              value={threatLevel}
-              className={`h-2 ${threatLevel < 30 ? "bg-green-100" : threatLevel < 70 ? "bg-yellow-100" : "bg-red-100"}`}
-            />
-          </div>
 
-          {stats.malicious > 0 && (
-            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm dark:bg-red-900/20 dark:border-red-800">
-              <p className="font-medium text-red-800 dark:text-red-400">Potential SYN Flood Attack Detected</p>
-              <p className="text-red-600 mt-1 dark:text-red-400">
-                {stats.malicious} suspicious SYN packets identified. This may indicate a SYN flood attack targeting your
-                system.
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            {stats.malicious > 0 && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm dark:bg-red-900/20 dark:border-red-800">
+                <p className="font-medium text-red-800 dark:text-red-400">Виявлено підозрілу активність</p>
+                <p className="text-red-600 mt-1 dark:text-red-400">
+                  Зафіксовано нетиповий мережевий трафік, що може вказувати на атаку.
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>

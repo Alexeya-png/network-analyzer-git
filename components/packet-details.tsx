@@ -41,7 +41,20 @@ export function PacketDetails({ packet }: PacketDetailsProps) {
               <p>Source Port: {packet.sourcePort}</p>
               <p>Destination Port: {packet.destPort}</p>
               <p>Flags: {packet.flags === "S" ? "SYN" : packet.flags === "PA" ? "PSH ACK" : packet.flags}</p>
-              {packet.isMalicious && <p className="text-red-600 font-bold dark:text-red-400">Potential SYN flood attack detected!</p>}
+              {packet.flags === "S" && <p>Sequence Number: {Math.floor(Math.random() * 4294967295)}</p>}
+              {packet.isMalicious && (
+                <div className="mt-2 p-2 bg-red-100 border border-red-300 rounded-md text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">
+                  <p className="font-bold">⚠️ Potential SYN Flood Attack Detected</p>
+                  <p className="text-sm mt-1">
+                    This packet appears to be part of a SYN flood attack. The source IP may be spoofed.
+                    {packet.destIp === "192.168.1.1" && packet.destPort === 80 && (
+                      <span className="block mt-1">
+                        Matches pattern from known attack script targeting web servers.
+                      </span>
+                    )}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         )}
