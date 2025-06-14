@@ -1,47 +1,53 @@
-import { NextResponse } from "next/server"
+// app/api/ml-analyze/route.ts
+import { NextResponse } from 'next/server';
+import { spawn } from 'child_process';
+import os from 'os';
+import path from 'path';
 
-// Эта функция будет обрабатывать запросы на анализ пакетов
-// В реальной реализации здесь был бы вызов Python сервера с ML моделью
 export async function POST(request: Request) {
   try {
-    const { features } = await request.json()
+    const { features, true_labels } = await request.json();
+    const payload = JSON.stringify({ features, true_labels });
 
-    if (!features || !Array.isArray(features)) {
-      return NextResponse.json({ error: "Invalid features data" }, { status: 400 })
-    }
+    // 1) Определяем команду python
+    const pythonCmd = os.platform().startsWith('win') ? 'python' : 'python3';
 
-    // Симуляция анализа ML модели
-    // В реальной реализации здесь был бы вызов Python сервера
-    const predictions = features.map((feature: any) => {
-      // Простая эвристика для демонстрации
-      // SYN пакеты на порт 80 считаем подозрительными
-      const isSynToPort80 = feature.protocol === 6 && feature.dst_port === 80
-      const hasRandomSourceIP = feature.src_ip > 0
+    // 2) Абсолютный путь до run_ml.py
+    const scriptPath = path.resolve(process.cwd(), 'scripts', 'run_ml.py');
 
-      // Если это SYN пакет на порт 80 с случайным IP - вероятно атака
-      return isSynToPort80 && hasRandomSourceIP
-    })
+    // 3) Запускаем скрипт
+    const result: any = await new Promise((resolve, reject) => {
+      const py = spawn(pythonCmd, [scriptPath], { stdio: ['pipe', 'pipe', 'pipe'] });
+      let stdout = '';
+      let stderr = '';
 
-    const confidence = predictions.map(
-      (pred: boolean) => (pred ? Math.random() * 0.3 + 0.7 : Math.random() * 0.3 + 0.1), // 0.7-1.0 для malicious, 0.1-0.4 для benign
-    )
+      py.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+      py.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
 
-    const maliciousCount = predictions.filter((p: boolean) => p).length
+      py.on('close', (code) => {
+        if (code !== 0) {
+          console.error('[run_ml.py] exited with', code, 'stderr:', stderr);
+          return reject(new Error(`ML script failed (code ${code}): ${stderr.trim()}`));
+        }
+        try {
+          resolve(JSON.parse(stdout));
+        } catch (err) {
+          console.error('[run_ml.py] JSON parse error:', err, 'stdout:', stdout);
+          reject(err);
+        }
+      });
 
-    const result = {
-      predictions,
-      confidence,
-      summary: {
-        total: features.length,
-        malicious: maliciousCount,
-        benign: features.length - maliciousCount,
-        accuracy: 0.85, // Симулированная точность модели
-      },
-    }
+      py.stdin.write(payload);
+      py.stdin.end();
+    });
 
-    return NextResponse.json(result)
-  } catch (error) {
-    console.error("Error in ML analysis:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    return NextResponse.json(result);
+
+  } catch (err: any) {
+    console.error('[ml-analyze] error:', err.message ?? err);
+    return NextResponse.json(
+      { error: err.message ?? 'Internal Server Error' },
+      { status: 500 }
+    );
   }
 }

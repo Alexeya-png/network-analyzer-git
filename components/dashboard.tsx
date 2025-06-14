@@ -281,6 +281,7 @@ export function Dashboard() {
             }
           }}
           onNewPackets={handleNewPackets}
+          onMLAnalysisComplete={(summary) => setMLAnalysisResults(summary)}
           onClearPackets={handleClearPackets}
           packets={packets}
           connectToServer={connectToServer}

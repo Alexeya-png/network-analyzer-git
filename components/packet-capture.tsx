@@ -286,8 +286,6 @@ export function PacketCapture({
 
       console.log("Updated packets with ML results:", updatedPackets.slice(0, 3))
 
-      onNewPackets(updatedPackets)
-
       if (onMLAnalysisComplete) {
         onMLAnalysisComplete(result.summary)
       }

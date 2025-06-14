@@ -26,7 +26,7 @@ def process_pcap(file_path):
     return pd.DataFrame(data)
 
 
-df = process_pcap('capture.pcap')
+df = process_pcap('pcaps/http-normal.pcap')
 df.to_csv('network_traffic_dataset.csv', index=False)
 
 print("Конвертація в CSV завершена.")
