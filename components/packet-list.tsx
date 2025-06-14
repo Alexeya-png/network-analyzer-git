@@ -30,16 +30,19 @@ export function PacketList({ packets, selectedPacket, setSelectedPacket }: Packe
 
   // Функция для создания стабильного ключа для каждого пакета
   const getPacketKey = (packet: PacketData, index: number): string => {
-    if (typeof packet.id === "string" && packet.id) {
-      return packet.id
-    }
+    // Всегда используем индекс как основу для уникальности
+    const baseKey = `packet-${index}`
 
-    if (typeof packet.id === "number" && !isNaN(packet.id)) {
-      return `packet-${packet.id}`
-    }
+    // Добавляем дополнительные характеристики для большей уникальности
+    const additionalInfo = `${packet.timestamp}-${packet.sourceIp}-${packet.sourcePort}-${packet.destIp}-${packet.destPort}-${packet.protocol}`
 
-    // Создаем ключ на основе характеристик пакета и его индекса
-    return `packet-${index}-${packet.timestamp}-${packet.sourceIp}:${packet.sourcePort}-${packet.destIp}:${packet.destPort}`
+    // Создаем хеш из дополнительной информации для сокращения длины ключа
+    const hash = additionalInfo.split("").reduce((a, b) => {
+      a = (a << 5) - a + b.charCodeAt(0)
+      return a & a
+    }, 0)
+
+    return `${baseKey}-${Math.abs(hash)}`
   }
 
   return (
@@ -91,7 +94,7 @@ export function PacketList({ packets, selectedPacket, setSelectedPacket }: Packe
                       <span>
                         {packet.flags === "S" ? (
                           <>
-                            <span className="font-medium">SYN</span> Seq={Math.floor(Math.random() * 4294967295)}{" "}
+                            <span className="font-medium">SYN</span> {" "}
                             Win=64240
                           </>
                         ) : packet.flags === "PA" ? (

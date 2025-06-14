@@ -10,4 +10,5 @@ export interface PacketData {
   flags: string
   isMalicious: boolean
   data: string // Hex representation of packet data
+  mlConfidence?: number // ML model confidence score (0-1)
 }

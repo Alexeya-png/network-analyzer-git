@@ -22,6 +22,7 @@ export function Dashboard() {
     icmp: 0,
     other: 0,
   })
+  const [mlAnalysisResults, setMLAnalysisResults] = useState<any>(null)
 
   // WebSocket ref
   const wsRef = useRef<WebSocket | null>(null)
@@ -245,8 +246,15 @@ export function Dashboard() {
       icmp: 0,
       other: 0,
     })
+    setMLAnalysisResults(null)
     // Очищаем Set для отслеживания пакетов
     processedPacketsRef.current.clear()
+  }, [])
+
+  // Callback для получения результатов ML анализа
+  const handleMLAnalysisComplete = useCallback((results: any) => {
+    console.log("Dashboard: ML Analysis completed:", results)
+    setMLAnalysisResults(results)
   }, [])
 
   // Очищаем WebSocket соединение при размонтировании компонента
@@ -277,6 +285,7 @@ export function Dashboard() {
           packets={packets}
           connectToServer={connectToServer}
           stopCapture={stopCapture}
+          onMLAnalysisComplete={handleMLAnalysisComplete}
         />
       </div>
       <div className="flex flex-1 overflow-hidden">
@@ -297,7 +306,7 @@ export function Dashboard() {
               )}
             </TabsContent>
             <TabsContent value="analysis" className="flex-1 overflow-auto">
-              <AnalysisPanel stats={captureStats} packets={packets} />
+              <AnalysisPanel stats={captureStats} packets={packets} mlAnalysis={mlAnalysisResults} />
             </TabsContent>
           </Tabs>
         </div>

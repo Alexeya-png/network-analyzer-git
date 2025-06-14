@@ -79,6 +79,24 @@ export function PacketDetails({ packet }: PacketDetailsProps) {
             </div>
           </div>
         )}
+
+        {packet.mlConfidence !== undefined && (
+          <div className="space-y-2">
+            <h3 className="font-semibold">Machine Learning Analysis</h3>
+            <div className="pl-4 space-y-1 text-sm">
+              <p>Confidence Score: {(packet.mlConfidence * 100).toFixed(1)}%</p>
+              <p>Classification: {packet.isMalicious ? "Malicious" : "Benign"}</p>
+              {packet.mlConfidence > 0.8 && packet.isMalicious && (
+                <div className="mt-2 p-2 bg-red-100 border border-red-300 rounded-md text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">
+                  <p className="font-bold">🤖 High Confidence Threat Detection</p>
+                  <p className="text-sm mt-1">
+                    Machine learning model detected this packet as malicious with high confidence.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </TabsContent>
       <TabsContent value="hex">
         <div className="font-mono text-xs whitespace-pre-wrap p-4 bg-muted rounded-md overflow-auto max-h-[500px]">
@@ -110,3 +128,4 @@ function formatHexDump(hexData: string) {
 
   return result
 }
+

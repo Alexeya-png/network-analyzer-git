@@ -1,29 +1,50 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Play, Square, Save, Upload, Filter } from "lucide-react"
+import { Play, Square, Save, Upload, Filter, Brain } from "lucide-react"
 import type { PacketData } from "@/lib/types"
 import { parsePcapFile, saveToPcap } from "@/lib/pcap-utils"
 import { useToast } from "@/hooks/use-toast"
+import { analyzePacketsWithML, isSynPacket } from "@/lib/ml-utils"
 
-// Update the interface to include packets
+interface Packet {
+  id: string
+  source: string
+  destination: string
+  protocol: string
+  length: number
+  info: string
+  mlConfidence?: number
+  mlPrediction?: string
+}
+
+interface MLAnalysisResults {
+  confidence: number[]
+  predictions: string[]
+  summary: {
+    total: number
+    malicious: number
+    accuracy: number
+  }
+  packetsWithML?: Packet[]
+}
+
 interface PacketCaptureProps {
   isCapturing: boolean
   setIsCapturing: (value: boolean) => void
   onNewPackets: (packets: PacketData[]) => void
   onClearPackets: () => void
-  packets: PacketData[] // Add this line
+  packets: PacketData[]
   connectToServer?: (interface_: string, filter: string) => void
   stopCapture?: () => void
+  onMLAnalysisComplete?: (results: any) => void
 }
 
-// Update the function signature to include packets
 export function PacketCapture({
   isCapturing,
   setIsCapturing,
@@ -32,6 +53,7 @@ export function PacketCapture({
   packets,
   connectToServer,
   stopCapture,
+  onMLAnalysisComplete,
 }: PacketCaptureProps) {
   const [interface_, setInterface] = useState("")
   const [filter, setFilter] = useState("")
@@ -43,16 +65,14 @@ export function PacketCapture({
   const [isLoading, setIsLoading] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const { toast } = useToast()
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
 
   const handleStartCapture = async () => {
     console.log("Starting capture on interface:", interface_ || "default")
 
-    // Use the connectToServer function from props if available
     if (connectToServer) {
-      // Pass the selected interface and filter to the server
       connectToServer(interface_ || "\\Device\\NPF_Loopback", filter)
     } else {
-      // Fallback to direct WebSocket connection
       connectToServerWithWebSocket(interface_ || "\\Device\\NPF_Loopback", filter)
     }
   }
@@ -60,11 +80,9 @@ export function PacketCapture({
   const handleStopCapture = () => {
     console.log("Stopping capture")
 
-    // Используем функцию stopCapture из props, если она доступна
     if (stopCapture) {
       stopCapture()
     } else {
-      // Если функция не доступна, просто меняем состояние
       setIsCapturing(false)
     }
   }
@@ -75,9 +93,7 @@ export function PacketCapture({
 
     setIsLoading(true)
     try {
-      // Используем реальный парсер PCAP файлов
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        // Если есть WebSocket соединение, отправляем файл на сервер
         const reader = new FileReader()
         reader.onload = async (event) => {
           if (event.target?.result) {
@@ -96,12 +112,11 @@ export function PacketCapture({
         }
         reader.readAsDataURL(file)
       } else {
-        // Если нет WebSocket соединения, парсим файл на клиенте
-        const packets = await parsePcapFile(file)
-        onNewPackets(packets)
+        const parsedPackets = await parsePcapFile(file)
+        onNewPackets(parsedPackets)
         toast({
           title: "PCAP файл загружен",
-          description: `Загружено ${packets.length} пакетов из файла ${file.name}`,
+          description: `Загружено ${parsedPackets.length} пакетов из файла ${file.name}`,
         })
       }
     } catch (error) {
@@ -113,7 +128,6 @@ export function PacketCapture({
       })
     } finally {
       setIsLoading(false)
-      // Сбрасываем значение input, чтобы можно было загрузить тот же файл повторно
       e.target.value = ""
     }
   }
@@ -131,7 +145,6 @@ export function PacketCapture({
     }
 
     try {
-      // Используем реальное сохранение PCAP
       const blob = await saveToPcap(packets)
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
@@ -161,7 +174,6 @@ export function PacketCapture({
   }
 
   const connectToServerWithWebSocket = (interface_: string, filter: string) => {
-    // Close previous connection if it exists
     if (wsRef.current) {
       wsRef.current.close()
     }
@@ -184,7 +196,6 @@ export function PacketCapture({
         try {
           const data = JSON.parse(event.data)
 
-          // Handle command responses
           if (data.type === "command_response") {
             console.log("Command response received:", data)
             if (data.command === "load_pcap" && data.status === "success") {
@@ -199,7 +210,6 @@ export function PacketCapture({
               })
             }
           } else {
-            // Process packet data
             handleNewPackets([data])
           }
         } catch (error) {
@@ -233,6 +243,70 @@ export function PacketCapture({
         description: `Не удалось подключиться к серверу: ${error}`,
         variant: "destructive",
       })
+    }
+  }
+
+  const handleMLAnalysis = async () => {
+    console.log("ML Analysis button clicked!")
+    console.log("Current packets:", packets.length)
+
+    if (packets.length === 0) {
+      toast({
+        title: "Нет пакетов для анализа",
+        description: "Захватите сетевой трафик перед анализом",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsAnalyzing(true)
+
+    const synPackets = packets.filter(isSynPacket)
+    console.log(`Found ${synPackets.length} SYN packets out of ${packets.length} total packets`)
+
+    toast({
+      title: "Начинаем ML анализ",
+      description: `Анализируем ${packets.length} пакетов (найдено ${synPackets.length} SYN пакетов)...`,
+    })
+
+    try {
+      console.log("Calling analyzePacketsWithML...")
+      const result = await analyzePacketsWithML(packets)
+      console.log("ML Analysis result:", result)
+
+      const updatedPackets = packets.map((packet, index) => {
+        const isMLMalicious = result.predictions[index]
+        return {
+          ...packet,
+          isMalicious: isMLMalicious || packet.isMalicious,
+          mlConfidence: result.confidence[index],
+          mlPrediction: isMLMalicious,
+        }
+      })
+
+      console.log("Updated packets with ML results:", updatedPackets.slice(0, 3))
+
+      onNewPackets(updatedPackets)
+
+      if (onMLAnalysisComplete) {
+        onMLAnalysisComplete(result.summary)
+      }
+
+      const synMaliciousCount = updatedPackets.filter((packet) => isSynPacket(packet) && packet.isMalicious).length
+
+      toast({
+        title: "ML анализ завершен",
+        description: `Обнаружено ${result.summary.malicious} подозрительных пакетов из ${result.summary.total}. SYN пакетов: ${synMaliciousCount}. Точность: ${(result.summary.accuracy * 100).toFixed(1)}%`,
+      })
+    } catch (error) {
+      console.error("Error in ML analysis:", error)
+      toast({
+        title: "Ошибка ML анализа",
+        description: `Не удалось выполнить анализ: ${error}`,
+        variant: "destructive",
+      })
+    } finally {
+      setIsAnalyzing(false)
     }
   }
 
@@ -295,6 +369,16 @@ export function PacketCapture({
           <Button variant="outline" onClick={handleSavePackets} disabled={packets.length === 0}>
             <Save className="h-4 w-4 mr-2" />
             Save
+          </Button>
+
+          <Button
+            variant="outline"
+            onClick={handleMLAnalysis}
+            disabled={packets.length === 0 || isAnalyzing}
+            className="bg-blue-50 hover:bg-blue-100 border-blue-200"
+          >
+            <Brain className="h-4 w-4 mr-2" />
+            {isAnalyzing ? "Analyzing..." : "ML Analysis"}
           </Button>
         </div>
       </div>
