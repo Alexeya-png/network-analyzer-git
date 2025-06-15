@@ -261,33 +261,36 @@ export function PacketCapture({
 
     setIsAnalyzing(true)
 
-    const synPackets = packets.filter(isSynPacket)
-    console.log(`Found ${synPackets.length} SYN packets out of ${packets.length} total packets`)
+    const targetPackets = packets;
+
+    console.log(`Found ${targetPackets.length} SYN packets out of ${packets.length} total packets`)
 
     toast({
       title: "Начинаем ML анализ",
-      description: `Анализируем ${packets.length} пакетов (найдено ${synPackets.length} SYN пакетов)...`,
+      description: `Анализируем ${packets.length} пакетов (найдено ${targetPackets.length} SYN пакетов)...`,
     })
 
     try {
-      console.log("Calling analyzePacketsWithML...")
-      const result = await analyzePacketsWithML(packets)
+      console.log("Calling analyzePacketsWithML on SYN packets...")
+      const result = await analyzePacketsWithML(targetPackets);
       console.log("ML Analysis result:", result)
 
-      const updatedPackets = packets.map((packet, index) => {
-        const isMLMalicious = result.predictions[index]
+      const updatedPackets = packets.map((packet) => {
+        const idx = targetPackets.indexOf(packet);
+        const isMLMalicious = idx >= 0
+          ? result.predictions[idx]
+          : packet.isMalicious;
         return {
           ...packet,
           isMalicious: isMLMalicious || packet.isMalicious,
-          mlConfidence: result.confidence[index],
           mlPrediction: isMLMalicious,
-        }
+        };
       })
 
       console.log("Updated packets with ML results:", updatedPackets.slice(0, 3))
 
       if (onMLAnalysisComplete) {
-        onMLAnalysisComplete(result.summary)
+        onMLAnalysisComplete(result.summary);
       }
 
       const synMaliciousCount = updatedPackets.filter((packet) => isSynPacket(packet) && packet.isMalicious).length

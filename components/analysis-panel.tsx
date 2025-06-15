@@ -119,9 +119,6 @@ export function AnalysisPanel({ stats, packets, mlAnalysis }: AnalysisPanelProps
                   <div className="text-sm text-muted-foreground">Безпечні</div>
                 </div>
               </div>
-              <div className="text-center">
-                <div className="text-lg font-semibold">Точність моделі: {(mlAnalysis.accuracy * 100).toFixed(1)}%</div>
-              </div>
             </div>
           </CardContent>
         </Card>

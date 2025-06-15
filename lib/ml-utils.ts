@@ -26,67 +26,34 @@ export function preparePacketForML(p: PacketData): number[] {
   return [
     ipToInt(p.sourceIp),
     ipToInt(p.destIp),
-    p.protocol ?? 0,
-    p.size ?? 0,
-  ]
+    p.sourcePort ?? 0,
+    p.destPort   ?? 0,
+    p.protocol   ?? 0,
+    p.size       ?? 0,
+  ];
 }
 
 /* ---------- 3. Запрос к /api/ml-analyze ---------------------------------- */
 
-export interface MLResult {
-  predictions: number[]            // 0 | 1
-  confidence: number[]             // [0‥1]
-  summary: {
-    total: number
-    malicious: number
-    benign: number
-    accuracy?: number              // может отсутствовать
-  }
-}
-
-/** Запускаем ML-анализ; при недоступности сервера — хитрая эвристика */
+// lib/ml-utils.ts
 export async function analyzePacketsWithML(
   packets: PacketData[],
 ): Promise<MLResult> {
-  try {
-    const features = packets.map(preparePacketForML)
+  const features = packets.map(preparePacketForML);
 
-    const res = await fetch("/api/ml-analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ features }),
-    })
+  const res = await fetch('/api/ml-analyze', {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ features }),
+  });
 
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    return await res.json()
-  } catch (e) {
-    console.error("ML endpoint error → fallback heuristic:", e)
-
-    /* ---------- fallback -------------------------------------------------- */
-    const predictions = packets.map((p) => {
-      if (isSynPacket(p)) return 1
-
-      const isPortScan =
-        p.protocol === 6 && p.destPort < 1024 && p.sourcePort > 32768
-      const isWeirdLen = p.size < 64 || p.size > 1500
-      const suspiciousPort = [22, 23, 3389].includes(p.destPort ?? -1)
-
-      return (isPortScan || isWeirdLen || suspiciousPort) ? 1 : 0
-    })
-
-    const malicious = predictions.reduce((s, v) => s + v, 0)
-    return {
-      predictions,
-      confidence: predictions.map((v) =>
-        v ? Math.random() * 0.2 + 0.8 : Math.random() * 0.2 + 0.1,
-      ),
-      summary: {
-        total: predictions.length,
-        malicious,
-        benign: predictions.length - malicious,
-      },
-    }
+  const text = await res.text();
+  if (!res.ok) {
+    // теперь выкидываем вместе со всем телом ответа (где лежит stderr)
+    throw new Error(`ML API HTTP ${res.status}: ${text}`);
   }
+  return JSON.parse(text);
 }
 
 /* ---------- 4. Экспорт в CSV для переобучения ----------------------------- */
