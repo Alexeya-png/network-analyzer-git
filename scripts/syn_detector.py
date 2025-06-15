@@ -57,7 +57,6 @@ def detect(pcap, model_in, min_run=10):
                                         'proto', 'length'])
     preds = clf.predict(df)
 
-    # определить последовательности подряд идущих «1»
     runs = []
     start = None
     for i, lab in enumerate(preds):
@@ -71,7 +70,6 @@ def detect(pcap, model_in, min_run=10):
     if start is not None and len(preds) - start >= min_run:
         runs.append((start, len(preds)))
 
-    # выводим пакеты, входящие только в длинные последовательности
     for s, e in runs:
         for pkt in pkts[s:e]:
             print(pkt.summary())
